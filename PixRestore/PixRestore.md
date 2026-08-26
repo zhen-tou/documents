@@ -92,6 +92,8 @@ DINOv2 在保真 & 感知的综合平衡上明显最优。作者给出的解释�
 
 这也就直接解释了后面为什么必须做 **每张图片自适应的分层加权**，而不能像 SD-based UIR 那样固定用某一层。
 
+![DINOv2_layers](./DINOv2_layers.jpg)
+
 ### 4.5 自适应分层视觉指引（Adaptive Hierarchical Visual Guidance）
 
 设从 DINOv2 抽取一组层 $\mathcal{L}=\{l_1,\dots,l_{|\mathcal{L}|}\}$，每层特征投影后得到 $U_l$。整个模块解决两件事：**（i）怎么把多层特征合成条件？（ii）怎么让主干"补齐"它自己没学好的那些层？**
@@ -115,7 +117,6 @@ $$
   s_l^{\text{dist}} \;=\; \frac{1}{N}\sum_{n=1}^{N}\bigl(1-\tilde d_l[n]\bigr),
   \quad \tilde d_l[n] = \frac{\|U_l^{lq}[n]-U_l^{hq}[n]\|_2}{Z_l}
   $$
-  论文写的是 "normalized L2-distance similarity"，通常实现为对该层所有 patch 距离用最大值或均值 $Z_l$ 归一后再取 $1-\cdot$。
 
 **为什么两种相似度都要**？两者互补：
 - 余弦对**方向**敏感，能捕捉"内容语义还在不在"；但对整体幅值缩放不敏感（低光图会被误判为"和 GT 完全一致"）；
@@ -175,6 +176,21 @@ $$
   - $\mathcal{L}_{adv} = \frac{1}{|L|}\sum_l \ell_{bce}(D_l(F^{\hat y_{hq}}_l),1)$
 - 完整目标：$\mathcal{L}=\mathcal{L}_{flow}+0.5(\mathcal{L}_{wpred}+\mathcal{L}_{feat}+\mathcal{L}_{adv})$
 
+### 4.7 DR-Score：基于 VLM 的退化去除评估指标
+
+**动机**：真实世界无 GT，FR 指标（PSNR/LPIPS）失效；NR-IQA（MUSIQ/AFINE-NR）只看"清不清晰"，不看"退化是否被去掉"。Fig. 4 的极端例子：**MUSIQ 甚至给"仍带雨条纹"的 FoundIR-v2 打得比 PixRestore 更高**——图像质量 ≠ 任务完成度。DR-Score 就是补上后者，作为**辅助诊断**（不替代 PSNR/LPIPS）。
+
+**评测协议**：用 **Gemini 3.1 Pro** 作为评判者，输入 `(LQ 图, 复原图, 任务类型 + 目标简述)`，输出 `(task type, score∈[0,100], 一句话原因)`。0 = 退化完全没去掉，100 = 干净彻底去除。每个任务都有专属评分准则（如 deblur 判"模糊是否去除+细节是否锐利"；SR 判"细节是否恢复+**无**过度平滑/伪影"）。**输出解释**让指标可解释，是传统 IQA 做不到的。
+
+**稳定性**：VLM 输出有随机性，每图查 **5 次求均值**。附录 D 给出两个 std：
+
+- **Run-level std（方法均分）= 0.10–0.43** → 方法级排名极稳
+- **Image-level std（单图）= 5.3–6.4** → 单图会飘但不影响排名
+
+**人工一致率 = 90.7% 的来源**：pairwise human study——**6 类真实退化 × 20 组 = 120 pairs**，从 {DA-CLIP\*, FoundIR\*, FoundIR-v2\*, FAPE-IR\*, PixRestore} 里随机抽 2 个双盲对比，**20 位标注者**关注"退化是否去除 / 内容是否保留 / 伪影是否抑制"三点。"aligned" = 人偏爱 A 且指标也给 A 更高分。结果 DR-Score 一致率 **90.7%**，显著高于 MUSIQ / AFINE-NR / TOPIQ / MANIQA。
+
+**失败模式**：两个结果**视觉几乎相同、只差微妙亮度/对比度/色调**时，DR-Score 会不稳（连人工都要细看）——它适合**"退化明显去/没去"的粗粒度诊断**，不适合"两个好结果挑更精致"。
+
 
 ---
 
@@ -197,7 +213,7 @@ $$
 - **优化**：AdamW，lr = 1e-4，bs = 16，512×512 crop，8× NVIDIA A800
 - **训练步数**：多步模型 250K iter → 单步蒸馏 100K iter
 - **评估基准**：15 个公开数据集（GoPro、UHD-blur、RESIDE-6K、DIV2K、PolyU、RainDS-real、UHD-LL、LOL、WeatherBench、RealSR、ScreenSR 等）+ 无 GT 的真实世界测试集（每种退化 100 张）
-- **指标**：PSNR / SSIM（保真）、LPIPS / DISTS（感知）、MUSIQ / AFINE-NR（无参考）、**DR-Score（VLM 退化去除评分）**
+- **指标**：PSNR / SSIM（保真）、LPIPS / DISTS（感知）、MUSIQ / AFINE-NR（无参考）、**DR-Score（基于 Gemini 3.1 Pro 的 VLM 退化去除评分，详见 § 4.7）**
 
 ---
 
@@ -212,7 +228,7 @@ $$
 | FoundIR-v2* | ~26 | ~0.19 | ~74 | 大 |
 | Flux-IR* | ~22 | ~0.32 | ~55 | 极大 |
 | FAPE-IR* | 高 | 低 | ~78 | 极大 |
-| **PixRestore (S)** | **强** | **最优** | **~78** | **53.7 M** |
+| **PixRestore-S** | **强** | **最优** | **~78** | **53.7 M** |
 | **PixRestore-B** | **最优** | **最优** | **~80** | **210.9 M** |
 
 在 de-raindrop、denoise、desnow 等多任务上，PixRestore/PixRestore-B 都取得或接近最佳 LPIPS、DISTS 与 DR-Score。
@@ -245,8 +261,9 @@ $$
 
 ### 7.4 真实世界泛化 & DR-Score
 
-- 在真实世界数据集上，**PixRestore-B 取得最高平均 DR-Score (67.88)**，超越 FAPE-IR* (67.55) 与 FoundIR-v2*。
-- MUSIQ / AFINE-NR 常与人工判断不一致（Fig. 4 示例：MUSIQ 反而偏爱有雨的输入），而 **DR-Score 与人工偏好一致率 90.7%**。
+- 在真实世界数据集（无 GT）上，**PixRestore-B 取得最高平均 DR-Score (67.88)**，超越 FAPE-IR\* (67.55)、FoundIR-v2\*。
+- 传统 NR-IQA（MUSIQ / AFINE-NR）常与人工判断不一致（Fig. 4：MUSIQ 反而偏爱**仍带雨条纹**的输入），而 **DR-Score 与人工偏好一致率 90.7%**（详见 § 4.7 关于协议、稳定性与人工研究的完整解释）。
+- 用 DR-Score 复评所有 baseline 后，**结论从"MUSIQ 打得高不等于修复得好"变成"是否真的完成了去退化任务"** —— 这也是本文能证明 PixRestore 在真实数据上"整体最优"的关键。
 
 ### 7.5 可扩展性
 
@@ -269,22 +286,3 @@ $$
 - **分层特征的用法**：对可靠层做条件、对不可靠层做监督——**"用你会的、练你不会的"**，是一个通用的先验利用思路，可迁移到其他底层视觉任务。
 - **VLM-as-Metric**：DR-Score 展示了 VLM 作为可解释、任务感知度量的潜力，可能推动 IQA 领域范式转变。
 - **单步扩散 + 判别器蒸馏**：判别器建在冻结 DINO token 上，几乎零成本地补回单步生成缺失的纹理细节。
-
----
-
-## 10. 值得关注的实现要点
-
-- Flow matching 的 $1/t$ 需截断（默认 0.05），否则训练初期梯度爆炸。
-- 6 个 DINO 层均匀分布抽取；所有层特征在投影前做 channel-wise RMS 归一化。
-- 辅助损失权重统一取 0.5（$\lambda_{wpred}=\lambda_{feat}=\lambda_{adv}=0.5$）。
-- 判别器采用**逐层独立头**的多层结构，交替更新 G/D。
-
----
-
-## 11. 一句话总结再来一次 🎯
-
-> **"扔掉 VAE、扔掉 T2I 巨模型、扔掉多步采样"——PixRestore 用一枚 50M 的像素 DiT + DINO 分层自适应指引，重新证明了：修复任务，忠于像素才是王道。**
-
----
-
-*文档整理自 PixRestore 论文（27 页 preprint）。如需引用具体数字或图表，请以原文为准。*
