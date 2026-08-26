@@ -47,9 +47,9 @@ PixRestore 用一个 **仅 ~50M 参数、纯像素空间、单步推理** 的 Di
 
 ### 4.2 像素空间 Flow Matching
 
-- 线性插值路径：$x_t = (1-t) y_{hq} + t \epsilon$，其中 $\epsilon \sim \mathcal{N}(0,I)$
-- 模型直接预测清洁图像：$\hat y_{hq} = f_\theta([y_{lq}, x_t], t, \mathcal{F}(y_{lq}))$
-- 速度损失：$\mathcal{L}_{flow} = \lVert \hat v_t - v_t \rVert_2^2$，其中 $v_t = (x_t - y_{hq})/t$（对 $1/t$ 在 0.05 处截断避免 $t \to 0$ 发散）
+- 线性插值路径：$`x_t = (1-t) y_{hq} + t \epsilon`$，其中 $`\epsilon \sim \mathcal{N}(0,I)`$
+- 模型直接预测清洁图像：$`\hat y_{hq} = f_\theta([y_{lq}, x_t], t, \mathcal{F}(y_{lq}))`$
+- 速度损失：$`\mathcal{L}_{flow} = \lVert \hat v_t - v_t \rVert_2^2`$，其中 $`v_t = (x_t - y_{hq})/t`$（对 $`1/t`$ 在 0.05 处截断避免 $`t \to 0`$ 发散）
 - DiT block：RMSNorm + QK-Norm Attention + RoPE，所有块共享同一 timestep block 产生 AdaLN 调制参数
 
 ### 4.3 像素 vs 潜空间对比（相同 DiT-S）
@@ -86,9 +86,9 @@ DINOv2 在保真 & 感知的综合平衡上明显最优。作者给出的解释�
 
 作者把 DINOv2 的 12 层特征分别可视化，发现：
 
-- **浅层 $l_1$–$l_2$**：几乎就是边缘/纹理图，对**去雨条纹、去模糊、去雪**最敏感（这类退化正是"结构级"破坏）
-- **中层 $l_5$–$l_7$**：对**低光增强、超分、去雾**最敏感（依赖局部对比度和中层语义）
-- **深层 $l_8$–$l_{10}$**：编码全局语义，对**噪声**最敏感（因为噪声破坏的是语义可读性，浅层反而"被骗过"）
+- **浅层 $`l_1`$–$`l_2`$**：几乎就是边缘/纹理图，对**去雨条纹、去模糊、去雪**最敏感（这类退化正是"结构级"破坏）
+- **中层 $`l_5`$–$`l_7`$**：对**低光增强、超分、去雾**最敏感（依赖局部对比度和中层语义）
+- **深层 $`l_8`$–$`l_{10}`$**：编码全局语义，对**噪声**最敏感（因为噪声破坏的是语义可读性，浅层反而"被骗过"）
 
 这也就直接解释了后面为什么必须做 **每张图片自适应的分层加权**，而不能像 SD-based UIR 那样固定用某一层。
 
@@ -96,11 +96,11 @@ DINOv2 在保真 & 感知的综合平衡上明显最优。作者给出的解释�
 
 ### 4.5 自适应分层视觉指引（Adaptive Hierarchical Visual Guidance）
 
-设从 DINOv2 抽取一组层 $\mathcal{L} = \{l_1, \dots, l_{\lvert \mathcal{L} \rvert}\}$，每层特征投影后得到 $U_l$。整个模块解决两件事：**（i）怎么把多层特征合成条件？（ii）怎么让主干"补齐"它自己没学好的那些层？**
+设从 DINOv2 抽取一组层 $`\mathcal{L} = \{l_1, \dots, l_{\lvert \mathcal{L} \rvert}\}`$，每层特征投影后得到 $`U_l`$。整个模块解决两件事：**（i）怎么把多层特征合成条件？（ii）怎么让主干"补齐"它自己没学好的那些层？**
 
-#### 4.5.1 关键量：LQ–HQ 层相似度 $s_l$ 的精确定义
+#### 4.5.1 关键量：LQ–HQ 层相似度 $`s_l`$ 的精确定义
 
-对每一层 $l$，从投影后的 patch token 序列 $U_l^{lq}, U_l^{hq}\in\mathbb{R}^{N\times d}$（$N$ = patch 数，$d$ = 投影维度）算两种相似度并取平均：
+对每一层 $`l`$，从投影后的 patch token 序列 $`U_l^{lq}, U_l^{hq}\in\mathbb{R}^{N\times d}`$（$`N`$ = patch 数，$`d`$ = 投影维度）算两种相似度并取平均：
 
 $$
 s_l = \frac{1}{2}\left(s_l^{\cos} + s_l^{\text{dist}}\right)
@@ -114,7 +114,7 @@ $$
 s_l^{\cos} = \frac{1}{N}\sum_{n=1}^{N}\frac{\langle U_l^{lq}[n], U_l^{hq}[n]\rangle}{\lVert U_l^{lq}[n] \rVert_2 \cdot \lVert U_l^{hq}[n] \rVert_2}
 $$
 
-**（2）归一化 $L_2$ 距离相似度分量**（衡量幅值差距，把距离映射回 $[0,1]$ 的相似度）：
+**（2）归一化 $`L_2`$ 距离相似度分量**（衡量幅值差距，把距离映射回 $`[0,1]`$ 的相似度）：
 
 $$
 s_l^{\text{dist}} = \frac{1}{N}\sum_{n=1}^{N}\left(1 - \tilde d_l[n]\right), \quad \tilde d_l[n] = \frac{\lVert U_l^{lq}[n] - U_l^{hq}[n] \rVert_2}{Z_l}
@@ -123,30 +123,30 @@ $$
 **为什么两种相似度都要**？两者互补：
 
 - 余弦对**方向**敏感，能捕捉"内容语义还在不在"；但对整体幅值缩放不敏感（低光图会被误判为"和 GT 完全一致"）；
-- $L_2$ 距离对**幅值/强度**敏感，能捕捉"亮度/对比度是否被破坏"；但对高维方向漂移不够灵敏。
-- 加权平均 $\frac{1}{2}(\cdot+\cdot)$ 让 $s_l$ 同时反映**语义对齐**与**能量对齐**。
+- $`L_2`$ 距离对**幅值/强度**敏感，能捕捉"亮度/对比度是否被破坏"；但对高维方向漂移不够灵敏。
+- 加权平均 $`\frac{1}{2}(\cdot+\cdot)`$ 让 $`s_l`$ 同时反映**语义对齐**与**能量对齐**。
 
-**含义**：$s_l \uparrow$ ⇒ 该层 LQ 特征已经很像 HQ ⇒ 说明这层"没被这种退化太伤到" ⇒ **可靠**，可以拿来做条件；$s_l \downarrow$ ⇒ 该层特征被破坏严重 ⇒ **不可靠**，主干需要"努力补它"。
+**含义**：$`s_l \uparrow`$ ⇒ 该层 LQ 特征已经很像 HQ ⇒ 说明这层"没被这种退化太伤到" ⇒ **可靠**，可以拿来做条件；$`s_l \downarrow`$ ⇒ 该层特征被破坏严重 ⇒ **不可靠**，主干需要"努力补它"。
 
-> ⚠️ **注意**：$s_l$ 只在**训练时**可算（需要 HQ）。推理时用轻量 router $\rho_\psi$ 从 LQ 直接预测权重 $p_l$。
+> ⚠️ **注意**：$`s_l`$ 只在**训练时**可算（需要 HQ）。推理时用轻量 router $`\rho_\psi`$ 从 LQ 直接预测权重 $`p_l`$。
 
-#### 4.5.2 两组互补权重：$q_l$（条件端）与 $r_l$（监督端）
+#### 4.5.2 两组互补权重：$`q_l`$（条件端）与 $`r_l`$（监督端）
 
-同一个 $s_l$ 被用来产生**方向相反**的两个 softmax 分布：
+同一个 $`s_l`$ 被用来产生**方向相反**的两个 softmax 分布：
 
-**条件权重 $q_l$**（相似度越高，权重越大）——用于把多层特征 fuse 成条件 $U_{fuse}=\sum_l p_l U_l$，注入 DiT 做 cross-attn 的 K/V：
+**条件权重 $`q_l`$**（相似度越高，权重越大）——用于把多层特征 fuse 成条件 $`U_{fuse}=\sum_l p_l U_l`$，注入 DiT 做 cross-attn 的 K/V：
 
 $$
 q_l = \frac{\exp(s_l)}{\sum_{k\in\mathcal{L}}\exp(s_k)}
 $$
 
-**监督权重 $r_l$**（相似度越低，权重越大）——用于给不可靠层加更大 loss $\mathcal{L}_{feat} = \sum_l r_l \ell^{feat}_l$：
+**监督权重 $`r_l`$**（相似度越低，权重越大）——用于给不可靠层加更大 loss $`\mathcal{L}_{feat} = \sum_l r_l \ell^{feat}_l`$：
 
 $$
 r_l = \frac{\exp(1-s_l)}{\sum_{k\in\mathcal{L}}\exp(1-s_k)}
 $$
 
-$q_l$ 与 $r_l$ 在 softmax 前的输入**互为反号**，构成"**你会的我拿来用；你不会的我使劲练你**"的分工。作者的原话是：*"$q_l$ selects reliable content features for conditioning, while $r_l$ focuses supervision on layers that need stronger restoration."*
+$`q_l`$ 与 $`r_l`$ 在 softmax 前的输入**互为反号**，构成"**你会的我拿来用；你不会的我使劲练你**"的分工。作者的原话是：*"$`q_l`$ selects reliable content features for conditioning, while $`r_l`$ focuses supervision on layers that need stronger restoration."*
 
 其中特征监督逐层损失为**余弦相似度损失**（同一 DINO 层）：
 
@@ -154,21 +154,21 @@ $$
 \ell^{feat}_l = 1 - \frac{1}{N}\sum_n \frac{\langle F_l(\hat y_{hq})[n], F_l(y_{hq})[n]\rangle}{\lVert F_l(\hat y_{hq})[n] \rVert_2 \cdot \lVert F_l(y_{hq})[n] \rVert_2}
 $$
 
-#### 4.5.3 推理时的 router $\rho_\psi$
+#### 4.5.3 推理时的 router $`\rho_\psi`$
 
-$\rho_\psi$ 是一个轻量 MLP，输入是**LQ 图**与**投影后的多层 LQ 特征**的拼接 $[y_{lq}, U_l]$，输出 $\lvert \mathcal{L} \rvert$ 维 logits 再 softmax 得 $p_l$：
+$`\rho_\psi`$ 是一个轻量 MLP，输入是**LQ 图**与**投影后的多层 LQ 特征**的拼接 $`[y_{lq}, U_l]`$，输出 $`\lvert \mathcal{L} \rvert`$ 维 logits 再 softmax 得 $`p_l`$：
 
 $$
 p_l = \text{softmax}\left(\rho_\psi([y_{lq}, U_l])\right),\quad l\in\mathcal{L}
 $$
 
-训练时用交叉熵向 $q_l$ 蒸馏：
+训练时用交叉熵向 $`q_l`$ 蒸馏：
 
 $$
 \mathcal{L}_{wpred} = -\sum_{l \in \mathcal{L}} q_l \log p_l
 $$
 
-推理时 HQ 不可得，就直接用 $p_l$ 替代 $q_l$ 做融合。
+推理时 HQ 不可得，就直接用 $`p_l`$ 替代 $`q_l`$ 做融合。
 
 #### 4.5.4 多步阶段总损失
 
@@ -176,17 +176,17 @@ $$
 \mathcal{L} = \mathcal{L}_{flow} + 0.5 \mathcal{L}_{wpred} + 0.5 \mathcal{L}_{feat}
 $$
 
-所有层特征在投影前统一做 **channel-wise RMS 归一化**，防止不同层激活尺度差异让 $s_l$ 失真。
+所有层特征在投影前统一做 **channel-wise RMS 归一化**，防止不同层激活尺度差异让 $`s_l`$ 失真。
 
 ### 4.6 单步蒸馏
 
-学生模型固定 $t = 1$，从纯噪声一步预测清洁图：
+学生模型固定 $`t = 1`$，从纯噪声一步预测清洁图：
 
 $$
 \hat y_{hq} = f_\theta([y_{lq}, \epsilon], 1, \mathcal{F}(y_{lq}))
 $$
 
-在同一 DINO 特征上加轻量多层判别器 $D_l$，判别 HQ 与恢复图特征真伪。判别器损失与对抗损失分别为：
+在同一 DINO 特征上加轻量多层判别器 $`D_l`$，判别 HQ 与恢复图特征真伪。判别器损失与对抗损失分别为：
 
 $$
 \mathcal{L}_D = \frac{1}{\lvert L \rvert}\sum_l \left[ \ell_{bce}(D_l(F^{y_{hq}}_l), 1) + \ell_{bce}(D_l(F^{\hat y_{hq}}_l), 0) \right]
