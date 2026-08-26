@@ -47,9 +47,9 @@ PixRestore 用一个 **仅 ~50M 参数、纯像素空间、单步推理** 的 Di
 
 ### 4.2 像素空间 Flow Matching
 
-- 线性插值路径：$x_t = (1-t)\,y_{hq} + t\,\epsilon$，$\epsilon \sim \mathcal{N}(0,I)$
-- 模型直接预测清洁图像：$\hat y_{hq} = f_\theta([y_{lq}; x_t],\, t,\, \mathcal{F}(y_{lq}))$
-- 速度损失：$\mathcal{L}_{flow}=\|\hat v_t - v_t\|_2^2$，其中 $v_t=(x_t-y_{hq})/t$（对 $1/t$ 在 0.05 处截断避免 $t \to 0$ 发散）
+- 线性插值路径：$x_t = (1-t) y_{hq} + t \epsilon$，其中 $\epsilon \sim \mathcal{N}(0,I)$
+- 模型直接预测清洁图像：$\hat y_{hq} = f_\theta([y_{lq}, x_t], t, \mathcal{F}(y_{lq}))$
+- 速度损失：$\mathcal{L}_{flow} = \lVert \hat v_t - v_t \rVert_2^2$，其中 $v_t = (x_t - y_{hq})/t$（对 $1/t$ 在 0.05 处截断避免 $t \to 0$ 发散）
 - DiT block：RMSNorm + QK-Norm Attention + RoPE，所有块共享同一 timestep block 产生 AdaLN 调制参数
 
 ### 4.3 像素 vs 潜空间对比（相同 DiT-S）
@@ -96,7 +96,7 @@ DINOv2 在保真 & 感知的综合平衡上明显最优。作者给出的解释�
 
 ### 4.5 自适应分层视觉指引（Adaptive Hierarchical Visual Guidance）
 
-设从 DINOv2 抽取一组层 $\mathcal{L}=\{l_1,\dots,l_{|\mathcal{L}|}\}$，每层特征投影后得到 $U_l$。整个模块解决两件事：**（i）怎么把多层特征合成条件？（ii）怎么让主干"补齐"它自己没学好的那些层？**
+设从 DINOv2 抽取一组层 $\mathcal{L} = \{l_1, \dots, l_{\lvert \mathcal{L} \rvert}\}$，每层特征投影后得到 $U_l$。整个模块解决两件事：**（i）怎么把多层特征合成条件？（ii）怎么让主干"补齐"它自己没学好的那些层？**
 
 #### 4.5.1 关键量：LQ–HQ 层相似度 $s_l$ 的精确定义
 
@@ -111,13 +111,13 @@ $$
 **（1）余弦相似度分量**（衡量方向一致性，即语义/结构对齐）：
 
 $$
-s_l^{\cos} = \frac{1}{N}\sum_{n=1}^{N}\frac{\langle U_l^{lq}[n],\; U_l^{hq}[n]\rangle}{\|U_l^{lq}[n]\|_2\;\|U_l^{hq}[n]\|_2}
+s_l^{\cos} = \frac{1}{N}\sum_{n=1}^{N}\frac{\langle U_l^{lq}[n], U_l^{hq}[n]\rangle}{\lVert U_l^{lq}[n] \rVert_2 \cdot \lVert U_l^{hq}[n] \rVert_2}
 $$
 
 **（2）归一化 $L_2$ 距离相似度分量**（衡量幅值差距，把距离映射回 $[0,1]$ 的相似度）：
 
 $$
-s_l^{\text{dist}} = \frac{1}{N}\sum_{n=1}^{N}\left(1-\tilde d_l[n]\right), \quad \tilde d_l[n] = \frac{\|U_l^{lq}[n]-U_l^{hq}[n]\|_2}{Z_l}
+s_l^{\text{dist}} = \frac{1}{N}\sum_{n=1}^{N}\left(1 - \tilde d_l[n]\right), \quad \tilde d_l[n] = \frac{\lVert U_l^{lq}[n] - U_l^{hq}[n] \rVert_2}{Z_l}
 $$
 
 **为什么两种相似度都要**？两者互补：
@@ -140,7 +140,7 @@ $$
 q_l = \frac{\exp(s_l)}{\sum_{k\in\mathcal{L}}\exp(s_k)}
 $$
 
-**监督权重 $r_l$**（相似度越低，权重越大）——用于给不可靠层加更大 loss $\mathcal{L}_{feat}=\sum_l r_l\,\ell^{feat}_l$：
+**监督权重 $r_l$**（相似度越低，权重越大）——用于给不可靠层加更大 loss $\mathcal{L}_{feat} = \sum_l r_l \ell^{feat}_l$：
 
 $$
 r_l = \frac{\exp(1-s_l)}{\sum_{k\in\mathcal{L}}\exp(1-s_k)}
@@ -151,12 +151,12 @@ $q_l$ 与 $r_l$ 在 softmax 前的输入**互为反号**，构成"**你会的我
 其中特征监督逐层损失为**余弦相似度损失**（同一 DINO 层）：
 
 $$
-\ell^{feat}_l \;=\; 1 - \frac{1}{N}\sum_n \frac{\langle F_l(\hat y_{hq})[n],\; F_l(y_{hq})[n]\rangle}{\|F_l(\hat y_{hq})[n]\|_2\;\|F_l(y_{hq})[n]\|_2}
+\ell^{feat}_l = 1 - \frac{1}{N}\sum_n \frac{\langle F_l(\hat y_{hq})[n], F_l(y_{hq})[n]\rangle}{\lVert F_l(\hat y_{hq})[n] \rVert_2 \cdot \lVert F_l(y_{hq})[n] \rVert_2}
 $$
 
 #### 4.5.3 推理时的 router $\rho_\psi$
 
-$\rho_\psi$ 是一个轻量 MLP，输入是**LQ 图**与**投影后的多层 LQ 特征**的拼接 $[y_{lq}, U_l]$，输出 $|\mathcal{L}|$ 维 logits 再 softmax 得 $p_l$：
+$\rho_\psi$ 是一个轻量 MLP，输入是**LQ 图**与**投影后的多层 LQ 特征**的拼接 $[y_{lq}, U_l]$，输出 $\lvert \mathcal{L} \rvert$ 维 logits 再 softmax 得 $p_l$：
 
 $$
 p_l = \text{softmax}\left(\rho_\psi([y_{lq}, U_l])\right),\quad l\in\mathcal{L}
@@ -165,7 +165,7 @@ $$
 训练时用交叉熵向 $q_l$ 蒸馏：
 
 $$
-\mathcal{L}_{wpred} \;=\; -\sum_{l\in\mathcal{L}} q_l\,\log p_l
+\mathcal{L}_{wpred} = -\sum_{l \in \mathcal{L}} q_l \log p_l
 $$
 
 推理时 HQ 不可得，就直接用 $p_l$ 替代 $q_l$ 做融合。
@@ -173,18 +173,34 @@ $$
 #### 4.5.4 多步阶段总损失
 
 $$
-\mathcal{L} \;=\; \mathcal{L}_{flow} \;+\; 0.5\,\mathcal{L}_{wpred} \;+\; 0.5\,\mathcal{L}_{feat}
+\mathcal{L} = \mathcal{L}_{flow} + 0.5 \mathcal{L}_{wpred} + 0.5 \mathcal{L}_{feat}
 $$
 
 所有层特征在投影前统一做 **channel-wise RMS 归一化**，防止不同层激活尺度差异让 $s_l$ 失真。
 
 ### 4.6 单步蒸馏
 
-- 学生模型固定 $t=1$，从纯噪声一步预测清洁图：$\hat y_{hq}=f_\theta([y_{lq};\epsilon],\,1,\,\mathcal{F}(y_{lq}))$
-- 在同一 DINO 特征上加轻量多层判别器 $D_l$，判别 HQ 与恢复图特征真伪：
-  - $\mathcal{L}_D = \frac{1}{|L|}\sum_l[\ell_{bce}(D_l(F^{y_{hq}}_l),1)+\ell_{bce}(D_l(F^{\hat y_{hq}}_l),0)]$
-  - $\mathcal{L}_{adv} = \frac{1}{|L|}\sum_l \ell_{bce}(D_l(F^{\hat y_{hq}}_l),1)$
-- 完整目标：$\mathcal{L}=\mathcal{L}_{flow}+0.5(\mathcal{L}_{wpred}+\mathcal{L}_{feat}+\mathcal{L}_{adv})$
+学生模型固定 $t = 1$，从纯噪声一步预测清洁图：
+
+$$
+\hat y_{hq} = f_\theta([y_{lq}, \epsilon], 1, \mathcal{F}(y_{lq}))
+$$
+
+在同一 DINO 特征上加轻量多层判别器 $D_l$，判别 HQ 与恢复图特征真伪。判别器损失与对抗损失分别为：
+
+$$
+\mathcal{L}_D = \frac{1}{\lvert L \rvert}\sum_l \left[ \ell_{bce}(D_l(F^{y_{hq}}_l), 1) + \ell_{bce}(D_l(F^{\hat y_{hq}}_l), 0) \right]
+$$
+
+$$
+\mathcal{L}_{adv} = \frac{1}{\lvert L \rvert}\sum_l \ell_{bce}(D_l(F^{\hat y_{hq}}_l), 1)
+$$
+
+完整训练目标：
+
+$$
+\mathcal{L} = \mathcal{L}_{flow} + 0.5 (\mathcal{L}_{wpred} + \mathcal{L}_{feat} + \mathcal{L}_{adv})
+$$
 
 ### 4.7 DR-Score：基于 VLM 的退化去除评估指标
 
